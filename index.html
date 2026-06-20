@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Static EDDN live feed dashboard grouped by message type." />
+  <title>EDDN Live Feed Blocks</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div class="eyebrow"><span class="pulse" aria-hidden="true"></span> Elite Dangerous Data Network</div>
+      <h1>Live EDDN messages, separated by type.</h1>
+      <p>
+        A static GitHub Pages dashboard that listens to an EDDN WebSocket-compatible feed,
+        groups each schema/message type into its own block, and filters every visible message as you type.
+      </p>
+    </header>
+
+    <section class="control-panel" aria-label="Feed controls">
+      <label class="filter-wrap" for="filter-input">
+        <span>Filter messages</span>
+        <input id="filter-input" type="search" autocomplete="off" spellcheck="false" placeholder="Type any value: system, station, commodity, event, schema…" />
+      </label>
+
+      <details class="endpoint-details">
+        <summary>Feed endpoint</summary>
+        <label for="endpoint-input">WebSocket URL</label>
+        <div class="endpoint-row">
+          <input id="endpoint-input" type="url" spellcheck="false" />
+          <button id="connect-button" type="button">Reconnect</button>
+        </div>
+        <p>
+          GitHub Pages cannot consume EDDN ZeroMQ directly, so this static app expects a browser-accessible
+          EDDN WebSocket feed. The default endpoint is configurable in the URL with <code>?ws=...</code>.
+        </p>
+      </details>
+
+      <div class="status-grid" aria-live="polite">
+        <div><span>Status</span><strong id="connection-status">starting</strong></div>
+        <div><span>Received</span><strong id="total-count">0</strong></div>
+        <div><span>Visible</span><strong id="visible-count">0</strong></div>
+        <div><span>Types</span><strong id="type-count">0</strong></div>
+      </div>
+    </section>
+
+    <main>
+      <section class="empty-state" id="empty-state">
+        <h2>Waiting for live messages…</h2>
+        <p>If the feed is quiet or blocked, the dashboard will keep trying. Use the endpoint control if you have another EDDN WebSocket relay.</p>
+      </section>
+      <section class="blocks" id="blocks" aria-label="Message type blocks"></section>
+    </main>
+  </div>
+
+  <template id="block-template">
+    <article class="message-block">
+      <header>
+        <div>
+          <p class="schema-path"></p>
+          <h2></h2>
+        </div>
+        <div class="block-counts"><span class="visible"></span><span class="total"></span></div>
+      </header>
+      <div class="cards"></div>
+    </article>
+  </template>
+
+  <template id="card-template">
+    <article class="message-card">
+      <header>
+        <span class="timestamp"></span>
+        <span class="software"></span>
+      </header>
+      <pre></pre>
+    </article>
+  </template>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
