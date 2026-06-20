@@ -3,28 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Static EDDN live feed dashboard grouped by message type." />
+  <meta name="description" content="Compact static EDDN live feed dashboard grouped by message type." />
   <title>EDDN Live Feed Blocks</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./assets/styles.css" />
 </head>
 <body>
   <div class="shell">
-    <header class="hero">
-      <div class="eyebrow"><span class="pulse" aria-hidden="true"></span> Elite Dangerous Data Network</div>
-      <h1>Live EDDN messages, separated by type.</h1>
-      <p>
-        A static GitHub Pages dashboard that listens to an EDDN WebSocket-compatible feed,
-        groups each schema/message type into its own block, and filters every visible message as you type.
-      </p>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Elite Dangerous Data Network</p>
+        <h1>EDDN Live Feed</h1>
+      </div>
+      <p class="lede">Compact real-time blocks by message type. Built for signal, not JSON archaeology.</p>
     </header>
 
     <section class="control-panel" aria-label="Feed controls">
       <label class="filter-wrap" for="filter-input">
-        <span>Filter messages</span>
-        <input id="filter-input" type="search" autocomplete="off" spellcheck="false" placeholder="Type any value: system, station, commodity, event, schema…" />
+        <span>Filter</span>
+        <input id="filter-input" type="search" autocomplete="off" spellcheck="false" placeholder="system, station, event, body, software…" />
       </label>
 
       <details class="endpoint-details">
@@ -35,8 +34,8 @@
           <button id="connect-button" type="button">Reconnect</button>
         </div>
         <p>
-          GitHub Pages cannot consume EDDN ZeroMQ directly, so this static app expects a browser-accessible
-          EDDN WebSocket feed. The default endpoint is configurable in the URL with <code>?ws=...</code>.
+          GitHub Pages cannot consume EDDN ZeroMQ directly, so this static app uses a browser-accessible
+          EDDN WebSocket relay. Override it with <code>?ws=...</code>.
         </p>
       </details>
 
@@ -61,8 +60,8 @@
     <article class="message-block">
       <header>
         <div>
-          <p class="schema-path"></p>
           <h2></h2>
+          <p class="schema-path"></p>
         </div>
         <div class="block-counts"><span class="visible"></span><span class="total"></span></div>
       </header>
@@ -73,10 +72,15 @@
   <template id="card-template">
     <article class="message-card">
       <header>
-        <span class="timestamp"></span>
-        <span class="software"></span>
+        <span class="event-pill"></span>
+        <time class="timestamp"></time>
       </header>
-      <pre></pre>
+      <h3></h3>
+      <dl class="facts"></dl>
+      <footer>
+        <span class="software"></span>
+        <span class="schema-version"></span>
+      </footer>
     </article>
   </template>
 

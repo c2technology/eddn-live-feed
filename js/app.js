@@ -1,6 +1,25 @@
 const DEFAULT_WS_URL = "wss://ws.eddn-realtime.space/eddn";
 const MAX_TOTAL_MESSAGES = 500;
-const MAX_MESSAGES_PER_TYPE = 40;
+const MAX_MESSAGES_PER_TYPE = 18;
+
+const DISPLAY_NAMES = new Map(Object.entries({
+  commodity: "Commodity",
+  codexentry: "Codex Entry",
+  dockingcancelled: "Docking Cancelled",
+  dockingdenied: "Docking Denied",
+  dockinggranted: "Docking Granted",
+  fssallbodiesfound: "FSS All Bodies Found",
+  fssbodysignals: "FSS Body Signals",
+  fssdiscoveryscan: "FSS Discovery Scan",
+  fsssignaldiscovered: "FSS Signal Discovered",
+  fsdjump: "FSD Jump",
+  journal: "Journal",
+  navroute: "Nav Route",
+  outfitting: "Outfitting",
+  scan: "Scan",
+  scanbarycentre: "Scan Barycentre",
+  shipyard: "Shipyard",
+}));
 
 const state = {
   ws: null,
@@ -94,24 +113,30 @@ function normalizeMessage(payload) {
   const schemaRef = payload.$schemaRef || payload.schemaRef || "unknown";
   const message = payload.message || {};
   const header = payload.header || {};
-  const schemaType = schemaRefToType(schemaRef, message.event);
+  const eventName = message.event || schemaRefToType(schemaRef);
+  const schemaType = schemaRefToType(schemaRef, eventName);
   const timestamp = message.timestamp || header.gatewayTimestamp || header.gatewaytimestamp || new Date().toISOString();
   const software = [header.softwareName, header.softwareVersion].filter(Boolean).join(" ") || "unknown uploader";
-  const searchable = JSON.stringify(payload).toLowerCase();
+  const summary = summarizePayload(payload, schemaType, eventName);
+  const searchable = [JSON.stringify(payload), summary.title, summary.facts.map((fact) => `${fact.label} ${fact.value}`).join(" ")]
+    .join(" ")
+    .toLowerCase();
 
   return {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     schemaRef,
     schemaType,
+    schemaVersion: schemaVersion(schemaRef),
+    eventName: humanizeType(eventName),
     timestamp,
     software,
     payload,
-    pretty: JSON.stringify(payload, null, 2),
+    summary,
     searchable,
   };
 }
 
-function schemaRefToType(schemaRef, eventName) {
+function schemaRefToType(schemaRef, eventName = "unknown") {
   try {
     const url = new URL(schemaRef);
     const parts = url.pathname.split("/").filter(Boolean);
@@ -124,10 +149,95 @@ function schemaRefToType(schemaRef, eventName) {
   }
 }
 
+function schemaVersion(schemaRef) {
+  const parts = String(schemaRef).split("/").filter(Boolean);
+  const version = parts.at(-1);
+  return /^\d+$/.test(version || "") ? `v${version}` : "";
+}
+
 function humanizeType(value) {
-  return String(value)
+  const raw = String(value || "unknown");
+  const key = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (DISPLAY_NAMES.has(key)) return DISPLAY_NAMES.get(key);
+  return raw
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[-_]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/\bFsd\b/g, "FSD")
+    .replace(/\bFss\b/g, "FSS");
+}
+
+function summarizePayload(payload, schemaType, eventName) {
+  const message = payload.message || {};
+  const schema = schemaType.toLowerCase().replace(/\s+/g, "");
+  const event = String(eventName || message.event || "").toLowerCase();
+  const context = { schema, event };
+
+  const facts = compactFacts([
+    fact("System", first(message.StarSystem, message.System, message.systemName)),
+    fact("Body", first(message.BodyName, message.Body, message.PlanetName, message.bodyName)),
+    fact("Station", first(message.StationName, message.stationName, message.Name)),
+    fact("Type", first(message.StationType, message.BodyType, message.PlanetClass, message.StarType, message.Type, message.event)),
+    fact("Allegiance", message.SystemAllegiance),
+    fact("Faction", getName(message.SystemFaction) || getName(message.StationFaction) || message.Faction),
+    fact("Population", formatNumber(message.Population)),
+    fact("Economy", cleanToken(first(message.SystemEconomy, message.StationEconomy, message.Economy))),
+    fact("Government", cleanToken(first(message.SystemGovernment, message.StationGovernment, message.Government))),
+    fact("Security", cleanToken(message.SystemSecurity)),
+    fact("Class", first(message.StarType, message.PlanetClass, message.BodyType)),
+    fact("Atmosphere", cleanToken(message.Atmosphere)),
+    fact("Landable", formatBool(message.Landable)),
+    fact("Scan", message.ScanType),
+    fact("From", message.From),
+    fact("To", message.To),
+    fact("Jumps", message.JumpCount),
+    fact("Distance", formatLy(message.RouteDistance || message.DistanceFromArrivalLS || message.JumpDist)),
+    fact("Pad", message.LandingPad),
+    fact("Reason", message.Reason),
+    fact("Commodity", cleanToken(message.Commodity)),
+    fact("Price", formatNumber(first(message.BuyPrice, message.SellPrice, message.Price))),
+    fact("Demand", formatNumber(message.Demand)),
+    fact("Supply", formatNumber(message.Supply)),
+    fact("Category", cleanToken(first(message.Category, message.SubCategory))),
+    fact("Region", cleanToken(message.Region)),
+    fact("Value", formatNumber(first(message.VoucherAmount, message.Reward))),
+  ]);
+
+  return {
+    title: chooseTitle(message, context),
+    facts: prioritizeFacts(facts, context),
+  };
+}
+
+function chooseTitle(message, { schema, event }) {
+  if (schema.includes("fssdiscoveredsignal")) return first(message.SignalName, message.StarSystem, "Discovered Signal");
+  if (schema.includes("scanbarycentre")) return first(message.StarSystem, "Barycentre Scan");
+  if (schema.includes("commodity")) return first(message.StationName, message.MarketID, "Commodity Update");
+  if (schema.includes("outfitting") || schema.includes("shipyard")) return first(message.StationName, message.MarketID, "Station Update");
+  if (schema.includes("codex")) return cleanToken(first(message.Name, message.SubCategory, "Codex Entry"));
+  if (event.includes("fsdjump") || event.includes("location")) return first(message.StarSystem, message.System, "System Visit");
+  if (event.includes("carrierjump")) return first(message.StationName, message.StarSystem, "Carrier Jump");
+  if (event.includes("docked") || schema.includes("docking")) return first(message.StationName, message.StarSystem, "Docking Event");
+  if (event.includes("scan") || schema.includes("scan")) return first(message.BodyName, message.Body, message.StarSystem, "Body Scan");
+  return first(message.StarSystem, message.System, message.StationName, message.BodyName, message.Body, message.Name, message.event, "EDDN Message");
+}
+
+function prioritizeFacts(facts, { schema, event }) {
+  const labelsByContext = [
+    [schema.includes("commodity"), ["Station", "System", "Commodity", "Price", "Demand", "Supply"]],
+    [schema.includes("shipyard") || schema.includes("outfitting"), ["Station", "System", "Type", "Commodity"]],
+    [schema.includes("codex"), ["System", "Body", "Category", "Region", "Value"]],
+    [schema.includes("route"), ["From", "To", "Jumps", "Distance"]],
+    [event.includes("fsdjump") || event.includes("location"), ["System", "Population", "Allegiance", "Faction", "State"]],
+    [event.includes("scan") || schema.includes("scan"), ["Body", "Class", "Atmosphere", "Landable", "Scan"]],
+    [event.includes("docked") || schema.includes("docking"), ["Station", "Type", "System", "Pad", "Reason"]],
+  ];
+
+  const priority = labelsByContext.find(([matches]) => matches)?.[1] || ["System", "Station", "Body", "Type", "Class", "Region"];
+  const byLabel = new Map(facts.map((item) => [item.label, item]));
+  const ordered = priority.map((label) => byLabel.get(label)).filter(Boolean);
+  const remainder = facts.filter((item) => !priority.includes(item.label));
+  return [...ordered, ...remainder].slice(0, 5);
 }
 
 function renderMessage(message) {
@@ -135,9 +245,30 @@ function renderMessage(message) {
   const card = els.cardTemplate.content.firstElementChild.cloneNode(true);
   card.dataset.messageId = message.id;
   card.dataset.searchable = message.searchable;
+  card.querySelector(".event-pill").textContent = message.eventName;
   card.querySelector(".timestamp").textContent = formatTime(message.timestamp);
-  card.querySelector(".software").textContent = message.software;
-  card.querySelector("pre").textContent = message.pretty;
+  card.querySelector(".timestamp").dateTime = message.timestamp;
+  card.querySelector("h3").textContent = cleanToken(message.summary.title);
+  card.querySelector(".software").textContent = compactSoftware(message.software);
+  card.querySelector(".schema-version").textContent = message.schemaVersion;
+
+  const facts = card.querySelector(".facts");
+  for (const item of message.summary.facts) {
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = item.label;
+    dd.textContent = cleanToken(item.value);
+    facts.append(dt, dd);
+  }
+
+  if (!message.summary.facts.length) {
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = "Event";
+    dd.textContent = message.eventName;
+    facts.append(dt, dd);
+  }
+
   block.cards.prepend(card);
   block.total += 1;
 }
@@ -148,7 +279,7 @@ function ensureBlock(message) {
   const blockEl = els.blockTemplate.content.firstElementChild.cloneNode(true);
   blockEl.dataset.type = message.schemaType;
   blockEl.querySelector("h2").textContent = message.schemaType;
-  blockEl.querySelector(".schema-path").textContent = message.schemaRef;
+  blockEl.querySelector(".schema-path").textContent = message.schemaVersion || "live";
   els.blocks.append(blockEl);
 
   const block = { el: blockEl, cards: blockEl.querySelector(".cards"), total: 0 };
@@ -183,6 +314,65 @@ function applyFilter() {
   els.visible.textContent = visibleMessages.toLocaleString();
   els.types.textContent = state.blocks.size.toLocaleString();
   els.empty.hidden = state.blocks.size > 0;
+}
+
+function compactFacts(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item || item.value === undefined || item.value === null || item.value === "" || item.value === "—") return false;
+    const key = `${item.label}:${item.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function fact(label, value) {
+  return { label, value };
+}
+
+function first(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "") || "";
+}
+
+function getName(value) {
+  if (!value) return "";
+  return typeof value === "object" ? value.Name || value.name || "" : value;
+}
+
+function cleanToken(value) {
+  return String(value ?? "")
+    .replace(/^\$/, "")
+    .replace(/;$/, "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactSoftware(value) {
+  return String(value)
+    .replace("E:D Market Connector", "EDMC")
+    .replace("Elite Dangerous Market Connector", "EDMC")
+    .replace(/\s+\[(Windows|Linux|Mac)\]/i, "")
+    .trim();
+}
+
+function formatNumber(value) {
+  if (value === undefined || value === null || value === "") return "";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString() : value;
+}
+
+function formatLy(value) {
+  if (value === undefined || value === null || value === "") return "";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return value;
+  return `${number.toLocaleString(undefined, { maximumFractionDigits: 2 })} ly`;
+}
+
+function formatBool(value) {
+  if (value === undefined || value === null) return "";
+  return value ? "Yes" : "No";
 }
 
 function formatTime(value) {
