@@ -256,10 +256,16 @@ code { color: var(--line); font-family: var(--mono); }
 }
 
 .message-card {
+  display: block;
+  width: 100%;
   border: 0;
   background: linear-gradient(90deg, var(--row), var(--row-2));
   color: var(--blue-text);
   padding: 5px 7px 6px;
+  text-align: left;
+  text-transform: none;
+  font: inherit;
+  cursor: pointer;
 }
 
 .message-card:nth-child(even) { background: #0758ad; }

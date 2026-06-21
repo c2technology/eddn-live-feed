@@ -69,6 +69,17 @@ els.detailClose.addEventListener("click", closeDetails);
 els.detailDialog.addEventListener("click", (event) => {
   if (event.target === els.detailDialog) closeDetails();
 });
+els.blocks.addEventListener("click", (event) => {
+  const card = event.target.closest(".message-card");
+  if (card) openDetails(card.dataset.messageId);
+});
+els.blocks.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const card = event.target.closest(".message-card");
+  if (!card) return;
+  event.preventDefault();
+  openDetails(card.dataset.messageId);
+});
 
 function setStatus(value, tone = "") {
   els.status.textContent = value;
@@ -270,13 +281,6 @@ function renderMessage(message) {
   card.querySelector("h3").textContent = cleanToken(message.summary.title);
   card.querySelector(".software").textContent = compactSoftware(message.software);
   card.querySelector(".schema-version").textContent = message.schemaVersion;
-  card.addEventListener("click", () => openDetails(message.id));
-  card.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openDetails(message.id);
-    }
-  });
 
   const facts = card.querySelector(".facts");
   for (const item of message.summary.facts) {
