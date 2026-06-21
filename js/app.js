@@ -28,6 +28,7 @@ const DISPLAY_NAMES = new Map(Object.entries({
 const state = {
   ws: null,
   messages: [],
+  messageById: new Map(),
   blocks: new Map(),
   totalReceived: 0,
   endpoint: new URLSearchParams(location.search).get("ws") || localStorage.getItem("eddn.ws") || DEFAULT_WS_URL,
@@ -46,6 +47,12 @@ const els = {
   visible: document.querySelector("#visible-count"),
   types: document.querySelector("#type-count"),
   empty: document.querySelector("#empty-state"),
+  detailDialog: document.querySelector("#detail-dialog"),
+  detailType: document.querySelector("#detail-type"),
+  detailTitle: document.querySelector("#detail-title"),
+  detailSummary: document.querySelector("#detail-summary"),
+  detailSections: document.querySelector("#detail-sections"),
+  detailClose: document.querySelector("#detail-close"),
 };
 
 els.endpoint.value = state.endpoint;
@@ -57,6 +64,10 @@ els.connect.addEventListener("click", () => {
   state.endpoint = els.endpoint.value.trim() || DEFAULT_WS_URL;
   localStorage.setItem("eddn.ws", state.endpoint);
   connect();
+});
+els.detailClose.addEventListener("click", closeDetails);
+els.detailDialog.addEventListener("click", (event) => {
+  if (event.target === els.detailDialog) closeDetails();
 });
 
 function setStatus(value, tone = "") {
@@ -96,7 +107,11 @@ function handleRawMessage(raw) {
   const normalized = normalizeMessage(parsed);
   state.totalReceived += 1;
   state.messages.unshift(normalized);
-  if (state.messages.length > MAX_TOTAL_MESSAGES) state.messages.pop();
+  state.messageById.set(normalized.id, normalized);
+  if (state.messages.length > MAX_TOTAL_MESSAGES) {
+    const removed = state.messages.pop();
+    state.messageById.delete(removed.id);
+  }
 
   renderMessage(normalized);
   trimBlocks();
@@ -255,6 +270,13 @@ function renderMessage(message) {
   card.querySelector("h3").textContent = cleanToken(message.summary.title);
   card.querySelector(".software").textContent = compactSoftware(message.software);
   card.querySelector(".schema-version").textContent = message.schemaVersion;
+  card.addEventListener("click", () => openDetails(message.id));
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openDetails(message.id);
+    }
+  });
 
   const facts = card.querySelector(".facts");
   for (const item of message.summary.facts) {
@@ -275,6 +297,125 @@ function renderMessage(message) {
 
   block.cards.prepend(card);
   block.total += 1;
+}
+
+
+function openDetails(messageId) {
+  const message = state.messageById.get(messageId);
+  if (!message) return;
+
+  els.detailType.textContent = `${message.schemaType} · ${message.eventName} · ${formatTime(message.timestamp)}`;
+  els.detailTitle.textContent = cleanToken(message.summary.title);
+  renderDetailSummary(message);
+  renderDetailSections(message);
+  els.detailDialog.showModal();
+}
+
+function closeDetails() {
+  if (els.detailDialog.open) els.detailDialog.close();
+}
+
+function renderDetailSummary(message) {
+  els.detailSummary.replaceChildren();
+  const summaryItems = [
+    ...message.summary.facts,
+    fact("Software", compactSoftware(message.software)),
+    fact("Schema", `${message.schemaType}${message.schemaVersion ? ` ${message.schemaVersion}` : ""}`),
+    fact("Timestamp", formatDateTime(message.timestamp)),
+  ];
+
+  for (const item of compactFacts(summaryItems).slice(0, 10)) {
+    const chip = document.createElement("div");
+    chip.className = "detail-chip";
+    const label = document.createElement("span");
+    const value = document.createElement("strong");
+    label.textContent = item.label;
+    value.textContent = formatDisplayValue(item.value);
+    chip.append(label, value);
+    els.detailSummary.append(chip);
+  }
+}
+
+function renderDetailSections(message) {
+  els.detailSections.replaceChildren();
+  const payload = message.payload || {};
+  const sections = [
+    ["Message", payload.message || {}],
+    ["Header", payload.header || {}],
+    ["Envelope", { "$schemaRef": payload.$schemaRef || payload.schemaRef, schemaType: message.schemaType, schemaVersion: message.schemaVersion }],
+  ];
+
+  for (const [title, value] of sections) {
+    const section = document.createElement("article");
+    section.className = "detail-section";
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    section.append(heading, renderValue(value));
+    els.detailSections.append(section);
+  }
+}
+
+function renderValue(value) {
+  if (Array.isArray(value)) {
+    const list = document.createElement("div");
+    list.className = "detail-list";
+    if (!value.length) {
+      list.textContent = "—";
+      return list;
+    }
+    for (const [index, item] of value.entries()) {
+      const row = document.createElement("div");
+      row.className = "detail-row nested";
+      const label = document.createElement("dt");
+      const data = document.createElement("dd");
+      label.textContent = String(index + 1);
+      data.append(renderValue(item));
+      row.append(label, data);
+      list.append(row);
+    }
+    return list;
+  }
+
+  if (value && typeof value === "object") {
+    const list = document.createElement("dl");
+    list.className = "detail-list";
+    const entries = Object.entries(value).filter(([, item]) => item !== undefined && item !== null && item !== "");
+    if (!entries.length) {
+      const empty = document.createElement("p");
+      empty.className = "detail-empty";
+      empty.textContent = "No fields reported.";
+      return empty;
+    }
+    for (const [key, item] of entries) {
+      const row = document.createElement("div");
+      row.className = "detail-row";
+      const label = document.createElement("dt");
+      const data = document.createElement("dd");
+      label.textContent = humanizeType(key);
+      data.append(renderValue(item));
+      row.append(label, data);
+      list.append(row);
+    }
+    return list;
+  }
+
+  const span = document.createElement("span");
+  span.className = "detail-value";
+  span.textContent = formatDisplayValue(value);
+  return span;
+}
+
+function formatDisplayValue(value) {
+  if (value === undefined || value === null || value === "") return "—";
+  if (typeof value === "boolean") return formatBool(value);
+  if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+  return cleanToken(value);
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "unknown time");
+  return date.toLocaleString([], { dateStyle: "medium", timeStyle: "medium" });
 }
 
 function ensureBlock(message) {

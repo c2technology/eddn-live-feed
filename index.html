@@ -70,7 +70,7 @@
   </template>
 
   <template id="card-template">
-    <article class="message-card">
+    <article class="message-card" tabindex="0" role="button" aria-label="Open message details">
       <header>
         <span class="event-pill"></span>
         <time class="timestamp"></time>
@@ -83,6 +83,21 @@
       </footer>
     </article>
   </template>
+
+
+  <dialog class="detail-dialog" id="detail-dialog" aria-labelledby="detail-title">
+    <article class="detail-panel">
+      <header class="detail-header">
+        <div>
+          <p class="detail-kicker" id="detail-type"></p>
+          <h2 id="detail-title"></h2>
+        </div>
+        <button class="detail-close" id="detail-close" type="button" aria-label="Close details">×</button>
+      </header>
+      <section class="detail-summary" id="detail-summary" aria-label="Message summary"></section>
+      <section class="detail-sections" id="detail-sections" aria-label="Message details"></section>
+    </article>
+  </dialog>
 
   <script type="module" src="./js/app.js"></script>
 </body>
